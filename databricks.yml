@@ -1,0 +1,39 @@
+bundle:
+  name: dab_test
+
+variables:
+  py_lib_catalog:
+    description: "UC catalog hosting python libraries (per env)"
+  py_lib_schema:
+    description: "UC schema hosting python libraries (per env)"
+  app_name:
+    description: "Databricks Apps name for this target"
+
+resources:
+  apps:
+    dab_test_app:
+      name: ${var.app_name}
+      description: "DAB demo app (${bundle.target}) sourcing python libs from /Volumes/${var.py_lib_catalog}/${var.py_lib_schema}/py_libs/app/py_libs/"
+      source_code_path: ${workspace.file_path}/app
+
+targets:
+  dev:
+    workspace:
+      host: https://fevm-classic-stable-2te8jp.cloud.databricks.com
+      profile: fevm-classic-stable-2te8jp
+      root_path: ~/.bundle/dab_test/dev
+    variables:
+      py_lib_catalog: tenbosch
+      py_lib_schema: app_dev
+      app_name: dab-test-dev
+
+  prod:
+    mode: production
+    workspace:
+      host: https://fevm-classic-stable-2te8jp.cloud.databricks.com
+      profile: fevm-classic-stable-2te8jp
+      root_path: ~/.bundle/dab_test/prod
+    variables:
+      py_lib_catalog: tenbosch
+      py_lib_schema: app_prod
+      app_name: dab-test-prod

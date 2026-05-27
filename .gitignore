@@ -1,0 +1,5 @@
+# Generated per-env at deploy time by scripts/build_requirements.sh
+app/requirements.txt
+
+# DAB local state
+.databricks/
