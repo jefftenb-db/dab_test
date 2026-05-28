@@ -1,87 +1,122 @@
 # dab_test
 
-A tiny Streamlit app that demonstrates the **Databricks Asset Bundle (DAB) dev/prod deployment pattern**
-while sourcing **all** Python dependencies from a Unity Catalog Volume (no pypi at runtime).
+A tiny Streamlit app that demonstrates the **Databricks Asset Bundle (DAB) dev/prod deployment
+pattern** when the app is **sourced directly from a Git repo** and pulls **all** Python
+dependencies from a Unity Catalog Volume (no pypi at runtime).
 
 | | dev | prod |
 |---|---|---|
 | App name | `dab-test-dev` | `dab-test-prod` |
-| Wheel volume | `/Volumes/tenbosch/app_dev/py_libs/app/py_libs/` | `/Volumes/tenbosch/app_prod/py_libs/app/py_libs/` |
+| UC Volume | `tenbosch.app_dev.py_libs` | `tenbosch.app_prod.py_libs` |
+| Wheel path | `/Volumes/tenbosch/app_dev/py_libs/` | `/Volumes/tenbosch/app_prod/py_libs/` |
 
 Both apps run side-by-side in the same workspace: `https://fevm-classic-stable-2te8jp.cloud.databricks.com`.
 
-## How it works
+## How it works (native-install pattern)
 
-1. `requirements.txt.tpl` is the single source of truth for dependencies. It uses `__CATALOG__` /
-   `__SCHEMA__` placeholders and a `--no-index --find-links /Volumes/.../py_libs/app/py_libs/` directive
-   so pip never reaches out to pypi.
-2. `scripts/build_requirements.sh` substitutes those placeholders for the target env and writes
-   `app/requirements.txt`. That file gets synced to the workspace by DAB and used by the app at
-   install time.
-3. `scripts/stage_wheels.sh` runs `pip download` locally (linux/x86_64, py3.11) for everything in
-   the template, then uploads the wheels to the UC Volume the app will install from.
-4. `databricks bundle deploy` syncs `app/` to a target-specific workspace folder and creates/updates
-   the `dab-test-{dev,prod}` app resource.
+The repo holds a single static `app/requirements.txt` with just package names — same file for
+both apps. The per-env wheel source is supplied to pip via pip-native env variables, set in
+`app.yaml`:
+
+```yaml
+env:
+  - name: PIP_NO_INDEX
+    value: "1"
+  - name: PIP_FIND_LINKS
+    valueFrom: py_lib_volume       # resolves to /Volumes/<cat>/<sch>/py_libs
+```
+
+`valueFrom: py_lib_volume` references the `uc_securable` resource bound to the app in
+`databricks.yml`. DAB substitutes `${var.py_lib_catalog}` / `${var.py_lib_schema}` per target,
+so dev binds `tenbosch.app_dev.py_libs` and prod binds `tenbosch.app_prod.py_libs`. The env var
+ends up resolving to the env-specific volume path at runtime.
+
+Databricks Apps' built-in deploy step runs `pip install -r requirements.txt`. Pip reads
+`PIP_NO_INDEX` and `PIP_FIND_LINKS` from the env (pip-native flags), so the install pulls from
+the bound UC Volume — never pypi.
+
+**Important layout constraint:** wheels must live at the **root** of the volume
+(`/Volumes/<cat>/<sch>/py_libs/`, not a sub-directory). The `valueFrom` UC volume binding
+resolves to the volume root path with no sub-path support, so the wheels and the env var have
+to agree.
 
 ## Prerequisites
 
-- Databricks CLI authenticated to `fevm-classic-stable-2te8jp` (default profile or `DATABRICKS_CONFIG_PROFILE`).
+- Databricks CLI authenticated to `fevm-classic-stable-2te8jp` (profile `fevm-classic-stable-2te8jp`).
 - Schemas `tenbosch.app_dev` and `tenbosch.app_prod` exist.
-- Volume `py_libs` exists in both schemas, with a writable subdir `app/py_libs/`.
-- The app's service principal has `READ VOLUME` on each volume. If not, app startup fails at pip install:
+- Volume `py_libs` exists in both schemas.
+- Each app's service principal has **Git credentials** configured to read this GitHub repo.
+  This is a one-time setup per app SP in the workspace UI (App → Git integration).
+- The app SP also needs `READ VOLUME` on the bound volume. The bundle requests `READ_VOLUME` as
+  part of the `uc_securable` binding, but if you pre-create the apps or the grant fails:
   ```sql
-  -- run in each env
-  GRANT READ VOLUME ON VOLUME tenbosch.app_dev.py_libs TO `<app-service-principal>`;
-  GRANT READ VOLUME ON VOLUME tenbosch.app_prod.py_libs TO `<app-service-principal>`;
+  GRANT READ VOLUME ON VOLUME tenbosch.app_dev.py_libs  TO `<dab-test-dev-sp>`;
+  GRANT READ VOLUME ON VOLUME tenbosch.app_prod.py_libs TO `<dab-test-prod-sp>`;
   ```
 
 ## Deploy
 
 ```bash
-# 1. Stage wheels into each env's UC Volume (one-time, repeat whenever requirements.txt.tpl changes)
+# 1. One-time per env (and after every change to app/requirements.txt):
+#    Download wheels locally and push them to the volume root.
 ./scripts/stage_wheels.sh tenbosch app_dev
 ./scripts/stage_wheels.sh tenbosch app_prod
 
-# 2. Build the env-specific requirements.txt + deploy + start, for dev
-./scripts/build_requirements.sh tenbosch app_dev
-databricks bundle deploy -t dev
-databricks bundle run -t dev dab_test_app          # starts/refreshes dab-test-dev
+# 2. Push code — the apps pull from GitHub, not from your laptop.
+git push origin main
 
-# 3. Same for prod
-./scripts/build_requirements.sh tenbosch app_prod
+# 3. Create / update the dev app and ship the current main:
+databricks bundle deploy -t dev
+databricks bundle run    -t dev dab_test_app     # dab-test-dev
+
+# 4. Same for prod:
 databricks bundle deploy -t prod
-databricks bundle run -t prod dab_test_app         # starts/refreshes dab-test-prod
+databricks bundle run    -t prod dab_test_app    # dab-test-prod
 ```
 
-The `bundle deploy` step prints the synced workspace path; `bundle run` prints the app URL.
+To pin prod to a tag or commit, set `git_branch` (or extend `databricks.yml` to use `tag` / `commit`):
+`databricks bundle deploy -t prod --var="git_branch=release-2026.05"`.
 
 ## Verify
 
-1. Hit the dev URL — page shows `Target: DEV`, the cowsay output, and the dev volume path.
-2. Hit the prod URL — same page, `Target: PROD`, prod volume path.
-3. Open the workspace path `~/.bundle/dab_test/dev/files/app/requirements.txt` and confirm
-   `__CATALOG__` / `__SCHEMA__` were substituted with `tenbosch` / `app_dev`. Repeat for prod.
-4. Independence: change the cowsay message in `app/app.py`, run only the dev deploy, refresh both
-   URLs — only dev shows the new message.
-5. (Optional) Negative test: revoke `READ VOLUME` on the dev volume and redeploy → `dab-test-dev`
-   fails to start with a pip error referencing the volume path; `dab-test-prod` keeps working.
+1. After deploy, open each app URL printed by `bundle run`:
+   - `dab-test-dev` → page shows `Target: DEV`, `UC catalog/schema: tenbosch / app_dev`,
+     `PIP_FIND_LINKS: /Volumes/tenbosch/app_dev/py_libs`, the cowsay output, and a streamlit version.
+   - `dab-test-prod` → same page, `Target: PROD`, prod volume path.
+2. In the app's **Logs** during deploy/startup, the `pip install -r requirements.txt` output
+   should reference only the volume path, with no pypi network calls.
+3. Independence check: bump the cowsay message in `app/app.py`, `git push`, then run
+   `databricks bundle run -t dev dab_test_app` only → only dev shows the new message.
+4. Negative test: revoke `READ VOLUME` on the dev volume and redeploy → `dab-test-dev` fails at
+   the `pip install` step with the volume path in the error; prod keeps working.
 
-## Adding a new dependency
+## Adding / removing a dependency
 
-1. Add the package name on its own line in `requirements.txt.tpl`.
-2. Re-run `./scripts/stage_wheels.sh` for both envs.
-3. Redeploy.
+1. Edit `app/requirements.txt`.
+2. `./scripts/stage_wheels.sh tenbosch app_dev` (and `app_prod`).
+3. `git push` + `databricks bundle run -t {dev,prod} dab_test_app`.
 
 ## Layout
 
 ```
 .
-├── databricks.yml            # bundle config (targets, variables, app resource)
-├── requirements.txt.tpl      # templated reqs (single source of truth)
-├── app/
-│   ├── app.py                # streamlit app
-│   └── app.yaml              # apps runtime config
+├── databricks.yml         # bundle: variables, targets, app resource + UC volume binding
+├── app/                   # what Databricks Apps pulls from GitHub (git_source.source_code_path: ./app)
+│   ├── app.py             # streamlit page
+│   ├── app.yaml           # env vars (PIP_NO_INDEX, PIP_FIND_LINKS via valueFrom) + start command
+│   └── requirements.txt   # static list of packages — pip uses env-supplied --find-links
 └── scripts/
-    ├── build_requirements.sh # .tpl → app/requirements.txt for a given env
-    └── stage_wheels.sh       # pip download → UC Volume upload
+    └── stage_wheels.sh    # pip download → upload wheels to volume root
 ```
+
+## Trade-offs
+
+- **Wheels must live at the volume root, not in a sub-directory.** `valueFrom` on a UC volume
+  binding only exposes the root path. If you also want to keep other content in the volume,
+  put it in a different volume.
+- **`requirements.txt` is just package names** — no `--no-index` / `--find-links` directives.
+  Those come from env vars at install time. Don't add `--find-links` directly to
+  `requirements.txt`; env-variable substitution inside `requirements.txt` is not supported by
+  Databricks Apps.
+- **Git credentials are app-SP-scoped.** Each app's SP needs a working credential for this repo.
+  Switching `git_repository` later resets these credentials.

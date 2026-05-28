@@ -8,13 +8,27 @@ variables:
     description: "UC schema hosting python libraries (per env)"
   app_name:
     description: "Databricks Apps name for this target"
+  git_branch:
+    description: "Git branch the app pulls source from"
+    default: main
 
 resources:
   apps:
     dab_test_app:
       name: ${var.app_name}
-      description: "DAB demo app (${bundle.target}) sourcing python libs from /Volumes/${var.py_lib_catalog}/${var.py_lib_schema}/py_libs/app/py_libs/"
-      source_code_path: ${workspace.file_path}/app
+      description: "DAB demo app (${bundle.target}) — pip installs from /Volumes/${var.py_lib_catalog}/${var.py_lib_schema}/py_libs/app/py_libs/"
+      git_repository:
+        url: https://github.com/jefftenb-db/dab_test
+        provider: github
+      git_source:
+        branch: ${var.git_branch}
+        source_code_path: ./app
+      resources:
+        - name: py_lib_volume
+          uc_securable:
+            securable_full_name: ${var.py_lib_catalog}.${var.py_lib_schema}.py_libs
+            securable_type: VOLUME
+            permission: READ_VOLUME
 
 targets:
   dev:
@@ -26,6 +40,7 @@ targets:
       py_lib_catalog: tenbosch
       py_lib_schema: app_dev
       app_name: dab-test-dev
+      git_branch: main
 
   prod:
     mode: production
@@ -37,3 +52,4 @@ targets:
       py_lib_catalog: tenbosch
       py_lib_schema: app_prod
       app_name: dab-test-prod
+      git_branch: main
