@@ -1,1 +1,7 @@
 command: ["streamlit", "run", "app.py"]
+
+env:
+  - name: PIP_NO_INDEX
+    value: "1"
+  - name: PIP_FIND_LINKS
+    valueFrom: py_lib_volume
