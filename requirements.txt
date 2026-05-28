@@ -1,2 +1,3 @@
+# wheels installed from UC volume via PIP_FIND_LINKS env var
 streamlit
 cowsay
