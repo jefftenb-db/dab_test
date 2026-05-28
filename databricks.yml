@@ -16,7 +16,7 @@ resources:
   apps:
     dab_test_app:
       name: ${var.app_name}
-      description: "DAB demo app (${bundle.target}) — pip installs from /Volumes/${var.py_lib_catalog}/${var.py_lib_schema}/py_libs/app/py_libs/"
+      description: "DAB demo app"
       git_repository:
         url: https://github.com/jefftenb-db/dab_test
         provider: github
