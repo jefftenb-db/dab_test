@@ -19,7 +19,7 @@ CATALOG="$1"
 SCHEMA="$2"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REQ_FILE="$REPO_ROOT/requirements.txt"
+REQ_FILE="$REPO_ROOT/app/requirements.txt"
 
 if [[ ! -f "$REQ_FILE" ]]; then
   echo "requirements.txt not found: $REQ_FILE" >&2

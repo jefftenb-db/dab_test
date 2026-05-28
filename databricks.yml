@@ -22,7 +22,7 @@ resources:
         provider: github
       git_source:
         branch: ${var.git_branch}
-        source_code_path: ./
+        source_code_path: ./app
       resources:
         - name: py_lib_volume
           uc_securable:

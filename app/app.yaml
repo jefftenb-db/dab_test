@@ -4,4 +4,4 @@ env:
   - name: PIP_NO_INDEX
     value: "1"
   - name: PIP_FIND_LINKS
-    value: /Volumes/tenbosch/app_dev/py_libs
+    valueFrom: py_lib_volume
