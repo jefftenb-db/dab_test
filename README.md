@@ -101,13 +101,14 @@ To pin prod to a tag or commit, set `git_branch` (or extend `databricks.yml` to 
 ```
 .
 ├── databricks.yml         # bundle: variables, targets, app resource + UC volume binding
-├── app/                   # what Databricks Apps pulls from GitHub (git_source.source_code_path: ./app)
-│   ├── app.py             # streamlit page
-│   ├── app.yaml           # env vars (PIP_NO_INDEX, PIP_FIND_LINKS via valueFrom) + start command
-│   └── requirements.txt   # static list of packages — pip uses env-supplied --find-links
+├── app.py                 # streamlit page (Databricks Apps source_code_path: ./)
+├── app.yaml               # env vars (PIP_NO_INDEX, PIP_FIND_LINKS via valueFrom) + start command
+├── requirements.txt       # static list of packages — pip uses env-supplied --find-links
 └── scripts/
     └── stage_wheels.sh    # pip download → upload wheels to volume root
 ```
+
+Databricks Apps git source pulls from the **root** of this repo (`source_code_path: ./`), so the app files live alongside the bundle config rather than in a subdirectory. The Apps runtime appears to ignore non-root `source_code_path` values in some configurations — keeping the entry-point files at the repo root avoids that.
 
 ## Trade-offs
 
